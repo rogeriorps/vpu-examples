@@ -1,7 +1,7 @@
 all: vpu-examples
 
 vpu-examples: example1.c
-	$(CC) -g -O0 -o example1 example1.c -I @prefix@/usr/src/kernel/include/uapi/ \
+	$(CC) -g -O0 -Wcpp -o example1 example1.c -I @prefix@/usr/src/kernel/include/uapi/ \
 	-I @prefix@/usr/src/kernel/include/ -lvpu -lipu -lrt -lpthread
 
 clean:
