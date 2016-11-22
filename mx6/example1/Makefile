@@ -1,40 +1,10 @@
-CC ?=$(CROSS_COMPILE)gcc
-LINK ?=$(CROSS_COMPILE)gcc
+all: vpu-examples
 
-OBJ = main.o \
-      dec.o \
-      enc.o \
-      capture.o \
-      display.o \
-      fb.o \
-      utils.o \
-      loopback.o \
-      transcode.o
+vpu-examples: example1.c
+	$(CC) -g -O0 -o example1 example1.c -I /tftpboot/rootfs_mx6/usr/src/kernel/include/uapi/ \
+	-I /tftpboot/rootfs_mx6/usr/src/kernel/include/ -lvpu -lipu -lrt -lpthread
 
-# list of platforms which want this test case
-INCLUDE_LIST:=IMX27ADS IMX51 IMX53 IMX6Q
-
-ifeq ($(PLATFORM),$(findstring $(PLATFORM),$(INCLUDE_LIST)))
-TARGET = mxc_vpu_test.out
-else
-TARGET =
-endif
-
-all: $(TARGET)
-
-$(TARGET): $(OBJ)
-	$(CC) -o $(TARGET) $(OBJ) ${LIBS} -lvpu -lipu -lrt -lpthread
-	mkdir -p $(OBJDIR)
-	mv $(TARGET) $(OBJDIR)
-	cp autorun-vpu.sh $(OBJDIR)
-	cp ./configs/config* $(OBJDIR)
-	cp ./configs/akiyo.mp4 $(OBJDIR)
-
-%.o: %.c
-	$(CC) $(INC) -Wall -O2 -c $^ -o $@
-
-.PHONY: clean
 clean:
-	rm -f $(OBJDIR)/$(TARGET) $(OBJ)
+	-rm example1
 
-include ../make.rules
+.PHONY: all clean
