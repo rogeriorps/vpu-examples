@@ -27,6 +27,8 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <linux/ipu.h>
+#include <signal.h>
+#include <getopt.h>
 
 sigset_t sigset;
 int quitflag;
@@ -56,6 +58,38 @@ static int isInterlacedMPEG4 = 0;
 #define MAX_FRAME_WIDTH 720
 #define MAX_FRAME_HEIGHT 576
 #endif
+
+static int using_config_file;
+
+struct input_argument {
+	int mode;
+	pthread_t tid;
+	char line[256];
+	struct cmd_line cmd;
+};
+
+static struct input_argument input_arg[MAX_NUM_INSTANCE];
+
+static int
+signal_thread(void *arg)
+{
+	int sig;
+
+	pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+
+	while (1) {
+		sigwait(&sigset, &sig);
+		if (sig == SIGINT) {
+			warn_msg("Ctrl-C received\n");
+		} else {
+			warn_msg("Unknown signal. Still exiting\n");
+		}
+		quitflag = 1;
+		break;
+	}
+
+	return 0;
+}
 
 // -- from framebuffer
 
@@ -2175,6 +2209,9 @@ int decoder_start(struct decode *dec)
 	int mjpgReadChunk = 0;
 	int index = -1;
 
+	disp = dec->disp;
+//	v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
+
 	/* deblock_en is zero on none mx27 since it is cleared in decode_open() function. */
 	if (rot_en || dering_en || tiled2LinearEnable) {
 		rotid = dec->regfbcount;
@@ -2184,7 +2221,7 @@ int decoder_start(struct decode *dec)
 	} else if (deblock_en) {
 		dblkid = dec->regfbcount;
 	}
-
+	printf("ponto 40\n");
 	decparam.dispReorderBuf = 0;
 	decparam.skipframeMode = 0;
 	decparam.skipframeNum = 0;
@@ -2223,7 +2260,7 @@ int decoder_start(struct decode *dec)
 			rot_stride = fwidth;
 		vpu_DecGiveCommand(handle, SET_ROTATOR_STRIDE, &rot_stride);
 	}
-
+	printf("ponto 41\n");
 	if (deblock_en) {
 		deblock_fb = &fb[dblkid];
 	}
@@ -2239,7 +2276,7 @@ int decoder_start(struct decode *dec)
 			deblock_fb->bufCr = pfb->addrCr;
 		}
 	}
-
+	printf("ponto 42\n");
 	gettimeofday(&total_start, NULL);
 
 	while (1) {
@@ -2260,7 +2297,7 @@ int decoder_start(struct decode *dec)
 				}
 			}
 		}
-
+		printf("ponto 43\n");
 		if (deblock_en) {
 			ret = vpu_DecGiveCommand(handle, DEC_SET_DEBLOCK_OUTPUT,
 						(void *)deblock_fb);
@@ -2298,10 +2335,10 @@ int decoder_start(struct decode *dec)
 				return -1;
 			}
 		}
-
+		printf("ponto 44\n");
 		gettimeofday(&tdec_begin, NULL);
 		ret = vpu_DecStartOneFrame(handle, &decparam);
-
+		printf("ponto 45\n");
 
 		if (ret != RETCODE_SUCCESS) {
 			err_msg("DecStartOneFrame failed, ret=%d\n", ret);
@@ -2327,7 +2364,7 @@ int decoder_start(struct decode *dec)
 				is_waited_int = 1;
 			loop_id ++;
 		}
-
+		printf("ponto 46\n");
 		if (!is_waited_int)
 			vpu_WaitForInt(100);
 
@@ -2339,11 +2376,11 @@ int decoder_start(struct decode *dec)
 			sec--;
 			usec = usec + 1000000;
 		}
-
+		printf("ponto 47\n");
 		tdec_time += (sec * 1000000) + usec;
 
 		ret = vpu_DecGetOutputInfo(handle, &outinfo);
-
+		printf("ponto 48\n");
 		dprintf(3, "frame_id %d, decidx %d, disidx %d, rotid %d, decodingSuccess 0x%x\n",
 				(int)frame_id, outinfo.indexFrameDecoded, outinfo.indexFrameDisplay,
 				rotid, outinfo.decodingSuccess);
@@ -2387,7 +2424,7 @@ int decoder_start(struct decode *dec)
 			else
 				continue;
 		}
-
+		printf("ponto 49\n");
 		if (cpu_is_mx6x() && (outinfo.decodingSuccess & 0x100000))
 			warn_msg("sequence parameters have been changed\n");
 
@@ -2400,7 +2437,7 @@ int decoder_start(struct decode *dec)
 			err_msg("Slice Buffer overflow\n");
 			return -1;
 		}
-
+		printf("ponto 50\n");
 		/* Frame Buffer Status */
 		if (outinfo.indexFrameDecoded >= 0 &&
 			outinfo.frameBufStat.enable &&
@@ -2434,8 +2471,9 @@ int decoder_start(struct decode *dec)
 				warn_msg("User Data Buffer is Full\n");
 			SaveUserData(dec->userData.addr);
 		}
-
+		printf("ponto 51\n");
 		if (outinfo.indexFrameDecoded >= 0) {
+			printf("ponto 52\n");
 			field = V4L2_FIELD_NONE;
 
 			if (dec->cmdl->format == STD_VC1) {
@@ -2494,6 +2532,7 @@ int decoder_start(struct decode *dec)
 					info_msg("frame_idx %d : Repeat First Field\n", decIndex);
 			}
 			dec->decoded_field[outinfo.indexFrameDecoded]= field;
+			printf("ponto 53\n");
 		}
 
 		if (outinfo.indexFrameDisplay == -1)
@@ -2501,7 +2540,7 @@ int decoder_start(struct decode *dec)
 		else if ((outinfo.indexFrameDisplay > dec->regfbcount) &&
 			 (outinfo.prescanresult != 0) && !cpu_is_mx6x())
 			decodefinish = 1;
-
+		printf("ponto 54\n");
 		if (decodefinish && (!(rot_en || dering_en || tiled2LinearEnable)))
 			break;
 
@@ -2529,7 +2568,7 @@ int decoder_start(struct decode *dec)
 						outinfo.numOfErrMBs, decIndex);
 			}
 		}
-
+		printf("ponto 55\n");
 		if(outinfo.indexFrameDecoded >= 0)
 			decIndex++;
 
@@ -2551,7 +2590,7 @@ int decoder_start(struct decode *dec)
 			}
 			continue;
 		}
-
+		printf("ponto 56\n");
 		if (rot_en || dering_en || tiled2LinearEnable || (dec->cmdl->format == STD_MJPG)) {
 			/* delay one more frame for PP */
 			if ((dec->cmdl->format != STD_MJPG) && (disp_clr_index < 0)) {
@@ -2566,7 +2605,7 @@ int decoder_start(struct decode *dec)
 		if ((dec->cmdl->dst_scheme == PATH_V4L2) || (dec->cmdl->dst_scheme == PATH_IPU)
 
 		   ) {
-			v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
+			 v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
 			if (deblock_en) {
 				deblock_fb->bufY =
 					v4l_rsd->buffers[v4l_rsd->buf.index]->offset;
@@ -2630,6 +2669,7 @@ int decoder_start(struct decode *dec)
 			}
 			disp_clr_index = outinfo.indexFrameDisplay;
 		}
+		printf("ponto 57\n");
 
 		frame_id++;
 		if ((count != 0) && (frame_id >= count))
@@ -2885,6 +2925,8 @@ decoder_allocate_framebuffer(struct decode *dec)
 		}
 	}
 
+	printf("dst_scheme: %x\n", dst_scheme);
+
 	if ((dst_scheme == PATH_V4L2) || (dst_scheme == PATH_IPU)
 
 	   ) {
@@ -2924,10 +2966,10 @@ decoder_allocate_framebuffer(struct decode *dec)
 		if (dst_scheme == PATH_V4L2)
 			v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
 
-
+		printf("ponto 30\n");
 		divX = (dec->mjpg_fmt == MODE420 || dec->mjpg_fmt == MODE422) ? 2 : 1;
 		divY = (dec->mjpg_fmt == MODE420 || dec->mjpg_fmt == MODE224) ? 2 : 1;
-
+		printf("ponto 31\n");
 		if (deblock_en == 0) {
 			img_size = dec->stride * dec->picheight;
 
@@ -2935,7 +2977,7 @@ decoder_allocate_framebuffer(struct decode *dec)
 				mvcol_md = dec->mvcol_memdesc =
 					calloc(totalfb, sizeof(vpu_mem_desc));
 			}
-
+			printf("ponto 32\n");
 			for (i = 0; i < totalfb; i++) {
 				fb[i].myIndex = i;
 
@@ -2963,7 +3005,7 @@ decoder_allocate_framebuffer(struct decode *dec)
 					err_msg("undefined mapType = %d\n", dec->cmdl->mapType);
 					goto err1;
 				}
-
+				printf("ponto 33\n");
 				// allocate MvCol buffer here
 				if (!cpu_is_mx27()) {
 					memset(&mvcol_md[i], 0,
@@ -2979,6 +3021,7 @@ decoder_allocate_framebuffer(struct decode *dec)
 			}
 		}
 	}
+	printf("ponto 34\n");
 
 	stride = ((dec->stride + 15) & ~15);
 
@@ -2994,20 +3037,20 @@ decoder_allocate_framebuffer(struct decode *dec)
 	bufinfo.maxDecFrmInfo.maxMbX = dec->stride / 16;
 	bufinfo.maxDecFrmInfo.maxMbY = dec->picheight / 16;
 	bufinfo.maxDecFrmInfo.maxMbNum = dec->stride * dec->picheight / 256;
-
+	printf("ponto 35\n");
 	// For H.264, we can overwrite initial delay calculated from syntax.
 	// * delay can be 0,1,... (in unit of frames)
 	// * Set to -1 or do not call this command if you don't want to overwrite it.
 	// * Take care not to set initial delay lower than reorder depth of the clip,
 	// * otherwise, display will be out of order. 
 	vpu_DecGiveCommand(handle, DEC_SET_FRAME_DELAY, &delay);
-
+	printf("ponto 36\n");
 	ret = vpu_DecRegisterFrameBuffer(handle, fb, dec->regfbcount, stride, &bufinfo);
 	if (ret != RETCODE_SUCCESS) {
 		err_msg("Register frame buffer failed, ret=%d\n", ret);
 		goto err1;
 	}
-
+	printf("ponto 37\n");
 	dec->disp = disp;
 	return 0;
 
@@ -3463,6 +3506,7 @@ decode_test()
 	vpu_mem_desc vp8_mbparam_mem_desc = {0};
 	struct decode *dec;
 	int ret, eos = 0, fill_end_bs = 0, fillsize = 0;
+	int using_config_file = 0;
 
 	memset(&cmdl_input, 0, sizeof(cmdl_input));
 
@@ -3495,7 +3539,7 @@ decode_test()
 	//cmdl->bitrate=
 	//cmdl->gop=
 
-#ifndef COMMON_INIT
+//#ifndef COMMON_INIT
 	vpu_versioninfo ver;
 	ret = vpu_Init(NULL);
 	if (ret) {
@@ -3514,7 +3558,7 @@ decode_test()
 						ver.fw_release, ver.fw_code);
 	info_msg("VPU library version: %d.%d.%d\n", ver.lib_major, ver.lib_minor,
 						ver.lib_release);
-#endif
+//#endif
 
 	vpu_v4l_performance_test = 0;
 	
@@ -3617,9 +3661,10 @@ decode_test()
 	ret = decoder_allocate_framebuffer(dec);
 	if (ret)
 		goto err1;
-
+	printf("ponto 38\n");
 	/* start decoding */
 	ret = decoder_start(dec);
+	printf("ponto 39\n");
 err1:
 	decoder_close(dec);
 	/* free the frame buffers */
@@ -3645,18 +3690,528 @@ err:
 	return ret;
 }
 
+static struct input_argument input_arg[MAX_NUM_INSTANCE];
+static int instance;
+static int using_config_file = 0;
+
+/* Encode or Decode or Loopback */
+static char *mainopts = "HE:D:L:T:C:";
+
+static char *options = "i:o:x:n:p:r:f:c:w:h:g:b:d:e:m:u:t:s:l:j:k:a:v:y:q:";
+
+int
+open_files(struct cmd_line *cmd)
+{
+	if (cmd->src_scheme == PATH_FILE) {
+#ifdef _FSL_VTS_
+    if ( NULL != g_pfnVTSProbe )
+    {
+        DUT_STREAM_OPEN sFileOpen;
+        sFileOpen.strBitstream = g_strInStream;
+        sFileOpen.strMode = "rb";
+        cmd->src_fd = NULL;
+        cmd->src_fd = g_pfnVTSProbe( E_OPEN_BITSTREAM, &sFileOpen );
+		if (NULL == cmd->src_fd ) {
+			perror("file open");
+			return -1;
+		}
+    }
+#else
+		cmd->src_fd = open(cmd->input, O_RDONLY, 0);
+		if (cmd->src_fd < 0) {
+			perror("file open");
+			return -1;
+		}
+		info_msg("Input file \"%s\" opened.\n", cmd->input);
+#endif
+	} 
+
+	if (cmd->dst_scheme == PATH_FILE) {
+#ifndef _FSL_VTS_
+		cmd->dst_fd = open(cmd->output, O_CREAT | O_RDWR | O_TRUNC,
+					S_IRWXU | S_IRWXG | S_IRWXO);
+		if (cmd->dst_fd < 0) {
+			perror("file open");
+
+			if (cmd->src_scheme == PATH_FILE)
+				close(cmd->src_fd);
+
+			return -1;
+		}
+		info_msg("Output file \"%s\" opened.\n", cmd->output);
+#endif
+	}
+
+	return 0;
+}
+
+void
+close_files(struct cmd_line *cmd)
+{
+#ifdef _FSL_VTS_
+    if ( NULL != g_pfnVTSProbe )
+    {
+        g_pfnVTSProbe( E_CLOSE_BITSTREAM, &cmd->src_fd );
+        cmd->src_fd = NULL;
+    }
+#else
+	if ((cmd->src_fd > 0)) {
+		close(cmd->src_fd);
+		cmd->src_fd = -1;
+	}
+#endif
+
+#ifndef _FSL_VTS_
+	if ((cmd->dst_fd > 0)) {
+		close(cmd->dst_fd);
+		cmd->dst_fd = -1;
+	}
+#endif
+
+	if (cmd->nbuf) {
+		free(cmd->nbuf);
+		cmd->nbuf = 0;
+	}
+}
+
+int
+check_params(struct cmd_line *cmd, int op)
+{
+	switch (cmd->format) {
+	case STD_MPEG4:
+		info_msg("Format: STD_MPEG4\n");
+		switch (cmd->mp4_h264Class) {
+		case 0:
+			info_msg("MPEG4 class: MPEG4\n");
+			break;
+		case 1:
+			info_msg("MPEG4 class: DIVX5.0 or higher\n");
+			break;
+		case 2:
+			info_msg("MPEG4 class: XVID\n");
+			break;
+		case 5:
+			info_msg("MPEG4 class: DIVX4.0\n");
+			break;
+		default:
+			err_msg("Unsupported MPEG4 Class!\n");
+			break;
+		}
+		break;
+	case STD_H263:
+		info_msg("Format: STD_H263\n");
+		break;
+	case STD_AVC:
+		info_msg("Format: STD_AVC\n");
+		switch (cmd->mp4_h264Class) {
+		case 0:
+			info_msg("AVC\n");
+			break;
+		case 1:
+			info_msg("MVC\n");
+			break;
+		default:
+			err_msg("Unsupported H264 type\n");
+			break;
+		}
+		break;
+	case STD_VC1:
+		info_msg("Format: STD_VC1\n");
+		break;
+	case STD_MPEG2:
+		info_msg("Format: STD_MPEG2\n");
+		break;
+	case STD_DIV3:
+		info_msg("Format: STD_DIV3\n");
+		break;
+	case STD_RV:
+		info_msg("Format: STD_RV\n");
+		break;
+	case STD_MJPG:
+		info_msg("Format: STD_MJPG\n");
+		break;
+	case STD_AVS:
+		info_msg("Format: STD_AVS\n");
+		break;
+	case STD_VP8:
+		info_msg("Format: STD_VP8\n");
+		break;
+	default:
+		err_msg("Unsupported Format!\n");
+		break;
+	}
+
+	if (cmd->port == 0) {
+		cmd->port = DEFAULT_PORT;
+	}
+
+	if (cmd->src_scheme != PATH_FILE && op == DECODE) {
+		cmd->src_scheme = PATH_NET;
+	}
+
+	if (cmd->src_scheme == PATH_FILE && op == ENCODE) {
+		if (cmd->width == 0 || cmd->height == 0) {
+			warn_msg("Enter width and height for YUV file\n");
+			return -1;
+		}
+	}
+
+	if (cmd->src_scheme == PATH_V4L2 && op == ENCODE) {
+		if (cmd->width == 0)
+			cmd->width = 176; /* default */
+
+		if (cmd->height == 0)
+			cmd->height = 144;
+
+		if (cmd->width % 16 != 0) {
+			cmd->width -= cmd->width % 16;
+			warn_msg("width not divisible by 16, adjusted %d\n",
+					cmd->width);
+		}
+
+		if (cmd->height % 8 != 0) {
+			cmd->height -= cmd->height % 8;
+			warn_msg("height not divisible by 8, adjusted %d\n",
+					cmd->height);
+		}
+
+	}
+
+	if (cmd->dst_scheme != PATH_FILE && op == ENCODE) {
+		if (cmd->dst_scheme != PATH_NET) {
+			warn_msg("No output file specified, using default\n");
+			cmd->dst_scheme = PATH_FILE;
+
+			if (cmd->format == STD_MPEG4) {
+				strncpy(cmd->output, "enc.mpeg4", 16);
+			} else if (cmd->format == STD_H263) {
+				strncpy(cmd->output, "enc.263", 16);
+			} else {
+				strncpy(cmd->output, "enc.264", 16);
+			}
+		}
+	}
+
+	if (cmd->rot_en) {
+		if (cmd->rot_angle != 0 && cmd->rot_angle != 90 &&
+			cmd->rot_angle != 180 && cmd->rot_angle != 270) {
+			warn_msg("Invalid rotation angle. No rotation!\n");
+			cmd->rot_en = 0;
+			cmd->rot_angle = 0;
+		}
+	}
+
+	if (cmd->mirror < MIRDIR_NONE || cmd->mirror > MIRDIR_HOR_VER) {
+		warn_msg("Invalid mirror angle. Using 0\n");
+		cmd->mirror = 0;
+	}
+
+	if (!(cmd->format == STD_MPEG4 || cmd->format == STD_H263 ||
+	    cmd->format == STD_MPEG2 || cmd->format == STD_DIV3) &&
+	    cmd->deblock_en) {
+		warn_msg("Deblocking only for MPEG4 and MPEG2. Disabled!\n");
+		cmd->deblock_en = 0;
+	}
+
+	return 0;
+}
+
+
+int
+parse_main_args(int argc, char *argv[])
+{
+	int status = 0, opt;
+
+	do {
+		opt = getopt(argc, argv, mainopts);
+		switch (opt)
+		{
+		case 'D':
+			input_arg[instance].mode = DECODE;
+			strncpy(input_arg[instance].line, argv[0], 26);
+			strncat(input_arg[instance].line, " ", 2);
+			strncat(input_arg[instance].line, optarg, 200);
+			instance++;
+			break;
+		case 'E':
+			input_arg[instance].mode = ENCODE;
+			strncpy(input_arg[instance].line, argv[0], 26);
+			strncat(input_arg[instance].line, " ", 2);
+			strncat(input_arg[instance].line, optarg, 200);
+			instance++;
+			break;
+		case 'L':
+			input_arg[instance].mode = LOOPBACK;
+			strncpy(input_arg[instance].line, argv[0], 26);
+			strncat(input_arg[instance].line, " ", 2);
+			strncat(input_arg[instance].line, optarg, 200);
+			instance++;
+			break;
+                case 'T':
+                        input_arg[instance].mode = TRANSCODE;
+                        strncpy(input_arg[instance].line, argv[0], 26);
+                        strncat(input_arg[instance].line, " ", 2);
+                        strncat(input_arg[instance].line, optarg, 200);
+                        instance++;
+                        break;
+		case 'C':
+			if (instance > 0) {
+			 	warn_msg("-C option not selected because of"
+							"other options\n");
+				break;
+			}
+
+	//		if (parse_config_file(optarg) == 0) {
+	//			using_config_file = 1;
+	//		}
+
+			break;
+		case -1:
+			break;
+		case 'H':
+		default:
+			status = -1;
+			break;
+		}
+	} while ((opt != -1) && (status == 0) && (instance < MAX_NUM_INSTANCE));
+
+	optind = 1;
+	return status;
+}
+
+
+int
+parse_args(int argc, char *argv[], int i)
+{
+	int status = 0, opt, val;
+
+	input_arg[i].mode = DECODE;
+
+	input_arg[i].cmd.chromaInterleave = 1;
+	if (cpu_is_mx6x())
+		input_arg[i].cmd.bs_mode = 1;
+
+	do {
+		opt = getopt(argc, argv, options);
+		switch (opt)
+		{
+		case 'i':
+			strncpy(input_arg[i].cmd.input, optarg, MAX_PATH);
+			input_arg[i].cmd.src_scheme = PATH_FILE;
+			break;
+		case 'o':
+			if (input_arg[i].cmd.dst_scheme == PATH_NET) {
+				warn_msg("-o ignored because of -n\n");
+				break;
+			}
+			strncpy(input_arg[i].cmd.output, optarg, MAX_PATH);
+			input_arg[i].cmd.dst_scheme = PATH_FILE;
+			break;
+		case 'x':
+			val = atoi(optarg);
+			if ((input_arg[i].mode == ENCODE) || (input_arg[i].mode == LOOPBACK))
+				input_arg[i].cmd.video_node_capture = val;
+			else {
+				if (val == 1) {
+					input_arg[i].cmd.dst_scheme = PATH_IPU;
+					info_msg("Display through IPU LIB\n");
+					if (cpu_is_mx6x())
+						warn_msg("IPU lib is OBSOLETE, please try other renderer\n");
+#ifdef BUILD_FOR_ANDROID
+				} else if (val == 2) {
+					input_arg[i].cmd.dst_scheme = PATH_G2D;
+					info_msg("Display through G2D\n");
+#endif
+				} else {
+					input_arg[i].cmd.dst_scheme = PATH_V4L2;
+					info_msg("Display through V4L2\n");
+					input_arg[i].cmd.video_node = val;
+				}
+				if (cpu_is_mx27() &&
+					(input_arg[i].cmd.dst_scheme == PATH_IPU)) {
+					input_arg[i].cmd.dst_scheme = PATH_V4L2;
+					warn_msg("ipu lib disp only support in ipuv3\n");
+				}
+			}
+			break;
+		case 'n':
+			if (input_arg[i].mode == ENCODE) {
+				/* contains the ip address */
+				strncpy(input_arg[i].cmd.output, optarg, 64);
+				input_arg[i].cmd.dst_scheme = PATH_NET;
+			} else {
+				warn_msg("-n option used only for encode\n");
+			}
+			break;
+		case 'p':
+			input_arg[i].cmd.port = atoi(optarg);
+			break;
+		case 'r':
+			input_arg[i].cmd.rot_angle = atoi(optarg);
+			if (input_arg[i].cmd.rot_angle)
+				input_arg[i].cmd.rot_en = 1;
+			break;
+		case 'u':
+			input_arg[i].cmd.ext_rot_en = atoi(optarg);
+			/* ipu/gpu rotation will override vpu rotation */
+			if (input_arg[i].cmd.ext_rot_en)
+				input_arg[i].cmd.rot_en = 0;
+			break;
+		case 'f':
+			input_arg[i].cmd.format = atoi(optarg);
+			break;
+		case 'c':
+			input_arg[i].cmd.count = atoi(optarg);
+			break;
+		case 'v':
+			input_arg[i].cmd.vdi_motion = optarg[0];
+			break;
+		case 'w':
+			input_arg[i].cmd.width = atoi(optarg);
+			break;
+		case 'h':
+			input_arg[i].cmd.height = atoi(optarg);
+			break;
+		case 'j':
+			input_arg[i].cmd.loff = atoi(optarg);
+			break;
+		case 'k':
+			input_arg[i].cmd.toff = atoi(optarg);
+			break;
+		case 'g':
+			input_arg[i].cmd.gop = atoi(optarg);
+			break;
+		case 's':
+			if (cpu_is_mx6x())
+				input_arg[i].cmd.bs_mode = atoi(optarg);
+			else
+				input_arg[i].cmd.prescan = atoi(optarg);
+			break;
+		case 'b':
+			input_arg[i].cmd.bitrate = atoi(optarg);
+			break;
+		case 'd':
+			input_arg[i].cmd.deblock_en = atoi(optarg);
+			break;
+		case 'e':
+			input_arg[i].cmd.dering_en = atoi(optarg);
+			break;
+		case 'm':
+			input_arg[i].cmd.mirror = atoi(optarg);
+			if (input_arg[i].cmd.mirror)
+				input_arg[i].cmd.rot_en = 1;
+			break;
+		case 't':
+			input_arg[i].cmd.chromaInterleave = atoi(optarg);
+			break;
+		case 'l':
+			input_arg[i].cmd.mp4_h264Class = atoi(optarg);
+			break;
+		case 'a':
+			input_arg[i].cmd.fps = atoi(optarg);
+			break;
+		case 'y':
+			input_arg[i].cmd.mapType = atoi(optarg);
+			break;
+		case 'q':
+			input_arg[i].cmd.quantParam = atoi(optarg);
+			break;
+		case -1:
+			break;
+		default:
+			status = -1;
+			break;
+		}
+	} while ((opt != -1) && (status == 0));
+
+	//add
+	input_arg[i].cmd.dst_scheme = PATH_V4L2;
+
+	optind = 1;
+	return status;
+}
+
+static char*
+skip(char *ptr)
+{
+	switch (*ptr) {
+	case    '\0':
+	case    ' ':
+	case    '\t':
+	case    '\n':
+		break;
+	case    '\"':
+		ptr++;
+		while ((*ptr != '\"') && (*ptr != '\0') && (*ptr != '\n')) {
+			ptr++;
+		}
+		if (*ptr != '\0') {
+			*ptr++ = '\0';
+		}
+		break;
+	default :
+		while ((*ptr != ' ') && (*ptr != '\t')
+			&& (*ptr != '\0') && (*ptr != '\n')) {
+			ptr++;
+		}
+		if (*ptr != '\0') {
+			*ptr++ = '\0';
+		}
+		break;
+	}
+
+	while ((*ptr == ' ') || (*ptr == '\t') || (*ptr == '\n')) {
+		ptr++;
+	}
+
+	return (ptr);
+}
+
+void
+get_arg(char *buf, int *argc, char *argv[])
+{
+	char *ptr;
+	*argc = 0;
+
+	while ( (*buf == ' ') || (*buf == '\t'))
+		buf++;
+
+	for (ptr = buf; *argc < 32; (*argc)++) {
+		if (!*ptr)
+			break;
+		argv[*argc] = ptr + (*ptr == '\"');
+		ptr = skip(ptr);
+	}
+
+	argv[*argc] = NULL;
+}
+
 int main(int argc, char *argv[])
 
 {
-	int err, nargc, i, ret = 0;
+	int err, nargc, i, ret;
 	char *pargv[32] = {0}, *dbg_env;
 	pthread_t sigtid;
-
+#ifdef COMMON_INIT
 	vpu_versioninfo ver;
-
+#endif
 	int ret_thr;
+	static int instance;
+	instance = 1;
 
+	char *soc_list[] = {"i.MX6Q", "i.MX6QP", "i.MX6DL", " "};
+
+	//ret = soc_version_check(soc_list);
+	//if (ret == 0) {
+//		printf("mxc_vpu_test.out not supported on current soc\n");
+//		return 0;
+//	}
+	printf("Ponto 1\n");
+	ret = 0;
+
+#ifndef COMMON_INIT
 	srand((unsigned)time(0)); /* init seed of rand() */
+#endif
 
 	dbg_env=getenv("VPU_TEST_DBG");
 	if (dbg_env)
@@ -3664,13 +4219,31 @@ int main(int argc, char *argv[])
 	else
 		vpu_test_dbg_level = 0;
 
-
+	err = parse_main_args(argc, argv);
+	if (err) {
+		goto usage;
+	}
+	printf("Ponto 3\n");
+	if (!instance) {
+		goto usage;
+	}
+	printf("Ponto 2\n");
 	info_msg("VPU test program built on %s %s\n", __DATE__, __TIME__);
+#ifndef _FSL_VTS_
+	sigemptyset(&sigset);
+	sigaddset(&sigset, SIGINT);
+	pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+	pthread_create(&sigtid, NULL, (void *)&signal_thread, NULL);
+#endif
 
+#ifdef COMMON_INIT
 	err = vpu_Init(NULL);
 	if (err) {
 		err_msg("VPU Init Failure.\n");
 		return -1;
+	}
+	else {
+		printf("VPU init ok\n");
 	}
 
 	err = vpu_GetVersionInfo(&ver);
@@ -3684,9 +4257,107 @@ int main(int argc, char *argv[])
 						ver.fw_release, ver.fw_code);
 	info_msg("VPU library version: %d.%d.%d\n", ver.lib_major, ver.lib_minor,
 						ver.lib_release);
+#else
+	// just to enable cpu_is_xx() to be used in command line parsing
+	err = vpu_Init(NULL);
+	if (err) {
+		err_msg("VPU Init Failure.\n");
+		return -1;
+	}	else {
+		printf("VPU init ok 2\n");
+	}
 
-	ret = decode_test();
 	vpu_UnInit();
+
+#endif
+
+	if (instance > 1) {
+		for (i = 0; i < instance; i++) {
+#ifndef COMMON_INIT
+			/* sleep roughly a frame interval to test multi-thread race
+			   especially vpu_Init/vpu_UnInit */
+			usleep((int)(rand()%ONE_FRAME_INTERV));
+#endif
+			if (using_config_file == 0) {
+				get_arg(input_arg[i].line, &nargc, pargv);
+				err = parse_args(nargc, pargv, i);
+				if (err) {
+					vpu_UnInit();
+					goto usage;
+				}
+			}
+
+			if (check_params(&input_arg[i].cmd,
+						input_arg[i].mode) == 0) {
+				if (open_files(&input_arg[i].cmd) == 0) {
+					if (input_arg[i].mode == DECODE) {
+					     pthread_create(&input_arg[i].tid,
+						   NULL,
+						   (void *)&decode_test,
+						   (void *)&input_arg[i].cmd);
+					} else if (input_arg[i].mode ==
+							ENCODE) {
+					     pthread_create(&input_arg[i].tid,
+						   NULL,
+						   (void *)&decode_test, //(void *)&encode_test,
+						   (void *)&input_arg[i].cmd);
+					}
+				}
+			}
+
+		}
+	} else {
+	//	if (using_config_file == 0) {
+			get_arg(input_arg[0].line, &nargc, pargv);
+			err = parse_args(nargc, pargv, 0);
+			if (err) {
+				vpu_UnInit();
+				goto usage;
+			}
+	//	}
+
+		if (check_params(&input_arg[0].cmd, input_arg[0].mode) == 0) {
+			if (open_files(&input_arg[0].cmd) == 0) {
+				if (input_arg[0].mode == DECODE) {
+					ret = decode_test(&input_arg[0].cmd);
+				} 
+				/*	else if (input_arg[0].mode == ENCODE) {
+					ret = encode_test(&input_arg[0].cmd);
+                                } else if (input_arg[0].mode == TRANSCODE) {
+                                        ret = transcode_test(&input_arg[0].cmd);
+				} */
+
+				close_files(&input_arg[0].cmd);
+			} else {
+				ret = -1;
+			}
+		} else {
+			ret = -1;
+		}
+
+		//if (input_arg[0].mode == LOOPBACK) {
+		//	encdec_test(&input_arg[0].cmd);
+		//}
+	}
+
+/*	if (instance > 1) {
+		for (i = 0; i < instance; i++) {
+			if (input_arg[i].tid != 0) {
+				pthread_join(input_arg[i].tid, (void *)&ret_thr);
+				if (ret_thr)
+					ret = -1;
+				close_files(&input_arg[i].cmd);
+			}
+		}
+	} */
+
+#ifdef COMMON_INIT
+	vpu_UnInit();
+#endif
 	return ret;
+
+usage:
+	//info_msg("\n%s", usage);
+	return -1;
 
 }
