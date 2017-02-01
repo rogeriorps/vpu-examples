@@ -1,10 +1,25 @@
-all: vpu-examples
+CC ?=$(CROSS_COMPILE)gcc
+LINK ?=$(CROSS_COMPILE)gcc
 
-vpu-examples: example1.c
-	$(CC) -g -O0 -o example1 example1.c -I /tftpboot/rootfs_mx6/usr/src/kernel/include/uapi/ \
-	-I /tftpboot/rootfs_mx6/usr/src/kernel/include/ -lvpu -lipu -lrt -lpthread
+OBJ = main.o \
+      capture.o \
+      display.o \
+      fb.o \
+      utils.o \
+ 
 
+TARGET = mxc_vpu_test.out
+
+all: $(TARGET)
+
+$(TARGET): $(OBJ)
+	$(CC) -o $(TARGET) $(OBJ) ${LIBS} -lvpu -lipu -lrt -lpthread -g
+
+%.o: %.c
+	$(CC) $(INC) -Wall -O2 -c $^ -o $@ -g
+
+.PHONY: clean
 clean:
-	-rm example1
+	rm -f $(OBJDIR)/$(TARGET) $(OBJ)
 
-.PHONY: all clean
+include ../make.rules
