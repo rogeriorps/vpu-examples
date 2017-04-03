@@ -28,8 +28,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include "vpu_test.h"
-
-#include "../../include/soc_check.h"
+#include "soc_check.h"
 
 #define ONE_FRAME_INTERV 100000 // 100 ms
 
@@ -170,27 +169,12 @@ int
 open_files(struct cmd_line *cmd)
 {
 	if (cmd->src_scheme == PATH_FILE) {
-#ifdef _FSL_VTS_
-    if ( NULL != g_pfnVTSProbe )
-    {
-        DUT_STREAM_OPEN sFileOpen;
-        sFileOpen.strBitstream = g_strInStream;
-        sFileOpen.strMode = "rb";
-        cmd->src_fd = NULL;
-        cmd->src_fd = g_pfnVTSProbe( E_OPEN_BITSTREAM, &sFileOpen );
-		if (NULL == cmd->src_fd ) {
-			perror("file open");
-			return -1;
-		}
-    }
-#else
 		cmd->src_fd = open(cmd->input, O_RDONLY, 0);
 		if (cmd->src_fd < 0) {
 			perror("file open");
 			return -1;
 		}
 		info_msg("Input file \"%s\" opened.\n", cmd->input);
-#endif
 	} else if (cmd->src_scheme == PATH_NET) {
 		/* open udp port for receive */
 		//cmd->src_fd = udp_open(cmd);
@@ -202,7 +186,6 @@ open_files(struct cmd_line *cmd)
 	}
 
 	if (cmd->dst_scheme == PATH_FILE) {
-#ifndef _FSL_VTS_
 		cmd->dst_fd = open(cmd->output, O_CREAT | O_RDWR | O_TRUNC,
 					S_IRWXU | S_IRWXG | S_IRWXO);
 		if (cmd->dst_fd < 0) {
@@ -214,17 +197,6 @@ open_files(struct cmd_line *cmd)
 			return -1;
 		}
 		info_msg("Output file \"%s\" opened.\n", cmd->output);
-#endif
-//	} //else if (cmd->dst_scheme == PATH_NET) {
-//		/* open udp port for send path */
-//		cmd->dst_fd = udp_open(cmd);
-//		if (cmd->dst_fd < 0) {
-//			if (cmd->src_scheme == PATH_NET)
-//				close(cmd->src_fd);
-//			return -1;
-//		}
-//
-//		info_msg("encoder sending on port %d\n", cmd->port);
 	}
 
 	return 0;
@@ -233,25 +205,15 @@ open_files(struct cmd_line *cmd)
 void
 close_files(struct cmd_line *cmd)
 {
-#ifdef _FSL_VTS_
-    if ( NULL != g_pfnVTSProbe )
-    {
-        g_pfnVTSProbe( E_CLOSE_BITSTREAM, &cmd->src_fd );
-        cmd->src_fd = NULL;
-    }
-#else
 	if ((cmd->src_fd > 0)) {
 		close(cmd->src_fd);
 		cmd->src_fd = -1;
 	}
-#endif
 
-#ifndef _FSL_VTS_
 	if ((cmd->dst_fd > 0)) {
 		close(cmd->dst_fd);
 		cmd->dst_fd = -1;
 	}
-#endif
 
 	if (cmd->nbuf) {
 		free(cmd->nbuf);
@@ -484,23 +446,7 @@ int
 vpu_read(struct cmd_line *cmd, char *buf, int n)
 {
 	int fd = cmd->src_fd;
-
-#ifdef _FSL_VTS_
-    if ( NULL != g_pfnVTSProbe )
-    {
-        DUT_STREAM_READ sFileRead;
-        sFileRead.hBitstream = fd;
-        sFileRead.pBitstreamBuf = buf;
-        sFileRead.iLength = n;
-        return g_pfnVTSProbe( E_READ_BITSTREAM, &sFileRead );
-    }
-    else
-    {
-        return 0;
-    }
-#else
 	return freadn(fd, buf, n);
-#endif
 }
 
 int	/* Read n bytes from a file descriptor */
@@ -1008,11 +954,8 @@ ipu_display_open(struct decode *dec, int nframes, struct rot rotation, Rect crop
 	}
 
 	/* set alpha */
-#ifdef BUILD_FOR_ANDROID
-	disp->fd = open("/dev/graphics/fb0", O_RDWR, 0);
-#else
 	disp->fd = open("/dev/fb0", O_RDWR, 0);
-#endif
+
 	if (disp->fd < 0) {
 		err_msg("unable to open fb0\n");
 		free(disp);
@@ -1238,11 +1181,7 @@ v4l_display_open(struct decode *dec, int nframes, struct rot rotation, Rect crop
 		out = 0;
 	} else {
 		out = 3;
-#ifdef BUILD_FOR_ANDROID
-		fd_fb = open("/dev/graphics/fb0", O_RDWR, 0);
-#else
 		fd_fb = open("/dev/fb0", O_RDWR, 0);
-#endif
 		if (fd_fb < 0) {
 			err_msg("unable to open fb0\n");
 			return NULL;
@@ -1809,10 +1748,6 @@ err:
 //dec.c
 
 extern int quitflag;
-#ifdef _FSL_VTS_
-#include "dut_probes_vts.h"
-extern FuncProbeDut g_pfnVTSProbe;
-#endif
 
 int vpu_v4l_performance_test;
 
@@ -1955,7 +1890,6 @@ static int mjpg_read_chunk_till_soi(struct decode *dec)
 static int mjpg_read_chunk(struct decode *dec)
 {
 	int ret;
-#ifndef READ_WHOLE_FILE
 	/* read a chunk between 2 SOIs for MJPEG clip */
 	if (dec->mjpg_rd_ptr == 0) {
 		ret = mjpg_read_chunk_till_soi(dec);
@@ -1964,18 +1898,6 @@ static int mjpg_read_chunk(struct decode *dec)
 	}
 	ret = mjpg_read_chunk_till_soi(dec);
 	return ret;
-#else
-	/* read whole file for JPEG file */
-	ret = vpu_read(dec->cmdl, (void *)dec->virt_bsbuf_addr,
-			STREAM_BUF_SIZE);
-	if (ret <= 0)
-		return ret;
-	else {
-		dec->mjpg_rd_ptr = ret + 2;
-		dprintf(4, "chunk size %lu\n", dec->mjpg_rd_ptr - 2);
-		return dec->mjpg_rd_ptr;
-	}
-#endif
 }
 
 void SaveFrameBufStat(u8 *frmStatusBuf, int size, int DecNum)
@@ -2303,9 +2225,6 @@ saveCropYuvImageHelper(struct decode *dec, u8 *buf, Rect cropRect)
 	int height = dec->picheight;
 	int rot_en = dec->cmdl->rot_en;
 	int rot_angle = dec->cmdl->rot_angle;
-#ifdef _FSL_VTS_
-	FRAME_COPY_INFO sFrmCpInfo;
-#endif
 
 	if (!buf) {
 		err_msg("buffer point should not be NULL.\n");
@@ -2328,17 +2247,10 @@ saveCropYuvImageHelper(struct decode *dec, u8 *buf, Rect cropRect)
 	pCropYuv += width * cropRect.top;
 	pCropYuv += cropRect.left;
 
-#ifdef _FSL_VTS_
-	sFrmCpInfo.puchLumY = pCropYuv;
-	sFrmCpInfo.iFrmWidth = cropWidth;
-	sFrmCpInfo.iFrmHeight = cropHeight;
-	sFrmCpInfo.iBufStrideY = width;
-#else
 	for (i = 0; i < cropHeight; i++) {
 		fwriten(dec->cmdl->dst_fd, pCropYuv, cropWidth);
 		pCropYuv += width;
 	}
-#endif
 	if (dec->cmdl->format == STD_MJPG && dec->mjpg_fmt == MODE400)
 		return;
 
@@ -2348,31 +2260,19 @@ saveCropYuvImageHelper(struct decode *dec, u8 *buf, Rect cropRect)
 	pCropYuv += (width / 2) * (cropRect.top / 2);
 	pCropYuv += cropRect.left / 2;
 
-#ifdef _FSL_VTS_
-	sFrmCpInfo.puchChrU = pCropYuv;
-	sFrmCpInfo.iBufStrideUV = width >> 1;
-#else
 	for (i = 0; i < cropHeight; i++) {
 		fwriten(dec->cmdl->dst_fd, pCropYuv, cropWidth);
 		pCropYuv += width / 2;
 	}
-#endif
 
 	pCropYuv = buf + (width * height) * 5 / 4;
 	pCropYuv += (width / 2) * (cropRect.top / 2);
 	pCropYuv += cropRect.left / 2;
 
-#ifdef _FSL_VTS_
-	sFrmCpInfo.puchChrV = pCropYuv;
-#else
 	for (i = 0; i < cropHeight; i++) {
 		fwriten(dec->cmdl->dst_fd, pCropYuv, cropWidth);
 		pCropYuv += width / 2;
 	}
-#endif
-#ifdef _FSL_VTS_
-	g_pfnVTSProbe( E_OUTPUT_FRAME, &sFrmCpInfo );
-#endif
 }
 
 /*
@@ -2649,22 +2549,7 @@ write_to_file(struct decode *dec, Rect cropRect, int index)
 	}
 
 	if ((chromaInterleave == 0 && cropping == 0) || dec->cmdl->format == STD_MJPG) {
-#ifdef _FSL_VTS_
-		FRAME_COPY_INFO sFrmCpInfo;
-		int iOffsetY = stride * height;
-		int iOffsetUV = iOffsetY >> 2;
-
-		sFrmCpInfo.puchLumY = buf;
-		sFrmCpInfo.puchChrU = buf + iOffsetY;
-		sFrmCpInfo.puchChrV = buf + iOffsetY + iOffsetUV;
-		sFrmCpInfo.iFrmWidth = stride;
-		sFrmCpInfo.iFrmHeight = height;
-		sFrmCpInfo.iBufStrideY = stride;
-		sFrmCpInfo.iBufStrideUV = stride >> 1;
-		g_pfnVTSProbe( E_OUTPUT_FRAME, &sFrmCpInfo );
-#else
 		fwriten(dec->cmdl->dst_fd, buf, img_size);
-#endif
 		goto out;
 	}
 
@@ -2697,22 +2582,7 @@ write_to_file(struct decode *dec, Rect cropRect, int index)
 		}
 
 	} else {
-#ifdef _FSL_VTS_
-		FRAME_COPY_INFO sFrmCpInfo;
-		int iOffsetY = stride * height;
-		int iOffsetUV = iOffsetY >> 2;
-
-		sFrmCpInfo.puchLumY = pYuv0;
-		sFrmCpInfo.puchChrU = pYuv0 + iOffsetY;
-		sFrmCpInfo.puchChrV = pYuv0 + iOffsetUV;
-		sFrmCpInfo.iFrmWidth = stride;
-		sFrmCpInfo.iFrmHeight = height;
-		sFrmCpInfo.iBufStrideY = stride;
-		sFrmCpInfo.iBufStrideUV = stride >> 1;
-		g_pfnVTSProbe( E_OUTPUT_FRAME, &sFrmCpInfo );
-#else
 		fwriten(dec->cmdl->dst_fd, (u8 *)pYuv0, img_size);
-#endif
 	}
 
 out:
@@ -3265,9 +3135,6 @@ decoder_start(struct decode *dec)
 			actual_display_index = outinfo.indexFrameDisplay;
 
 		if ((dec->cmdl->dst_scheme == PATH_V4L2) || (dec->cmdl->dst_scheme == PATH_IPU)
-#ifdef BUILD_FOR_ANDROID
-				|| (dec->cmdl->dst_scheme == PATH_G2D)
-#endif
 		   ) {
 			v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
 			if (deblock_en) {
@@ -3284,29 +3151,18 @@ decoder_start(struct decode *dec)
 					err = v4l_put_data(dec, actual_display_index, dec->decoded_field[actual_display_index], dec->cmdl->fps);
 				else if (dec->cmdl->dst_scheme == PATH_IPU)
 					err = ipu_put_data(disp, actual_display_index, dec->decoded_field[actual_display_index], dec->cmdl->fps);
-#ifdef BUILD_FOR_ANDROID
-				else if (dec->cmdl->dst_scheme == PATH_G2D)
-					err = android_put_data(disp, actual_display_index, dec->decoded_field[actual_display_index], dec->cmdl->fps);
-#endif
 			}
 			else {
 				if (dec->cmdl->dst_scheme == PATH_V4L2)
 					err = v4l_put_data(dec, actual_display_index, V4L2_FIELD_ANY, dec->cmdl->fps);
 				else if (dec->cmdl->dst_scheme == PATH_IPU)
 					err = ipu_put_data(disp, actual_display_index, V4L2_FIELD_ANY, dec->cmdl->fps);
-#ifdef BUILD_FOR_ANDROID
-				else if (dec->cmdl->dst_scheme == PATH_G2D)
-					err = android_put_data(disp, actual_display_index, V4L2_FIELD_ANY, dec->cmdl->fps);
-#endif
 			}
 
 			if (err)
 				return -1;
 
 			if (dec->cmdl->dst_scheme == PATH_V4L2
-#ifdef BUILD_FOR_ANDROID
-					|| dec->cmdl->dst_scheme == PATH_G2D
-#endif
 			   ) {
 				if (dec->cmdl->dst_scheme == PATH_V4L2) {
 					if (!vpu_v4l_performance_test)
@@ -3314,10 +3170,6 @@ decoder_start(struct decode *dec)
 					else
 						index = v4l_get_buf(dec);
 				}
-#ifdef BUILD_FOR_ANDROID
-				else if (dec->cmdl->dst_scheme == PATH_G2D)
-					index = android_get_buf(dec);
-#endif
 
 				if (dec->cmdl->format != STD_MJPG && disp_clr_index >= 0) {
 					err = vpu_DecClrDispFlag(handle, disp_clr_index);
@@ -3413,19 +3265,12 @@ decoder_free_framebuffer(struct decode *dec)
 	totalfb = dec->regfbcount + dec->extrafb;
 
 	if ((dec->cmdl->dst_scheme == PATH_V4L2) || (dec->cmdl->dst_scheme == PATH_IPU)
-#ifdef BUILD_FOR_ANDROID
-			|| (dec->cmdl->dst_scheme == PATH_G2D)
-#endif
 	   ) {
 		if (dec->disp) {
 			if (dec->cmdl->dst_scheme == PATH_V4L2)
 				v4l_display_close(dec->disp);
 			else if (dec->cmdl->dst_scheme == PATH_IPU)
 				ipu_display_close(dec->disp);
-#ifdef BUILD_FOR_ANDROID
-			else if (dec->cmdl->dst_scheme == PATH_G2D)
-				android_display_close(dec->disp);
-#endif
 			dec->disp = NULL;
 		}
 
@@ -3520,9 +3365,6 @@ decoder_allocate_framebuffer(struct decode *dec)
 	struct frame_buf **pfbpool;
 	struct vpu_display *disp = NULL;
 	struct v4l_specific_data *v4l_rsd = NULL;
-#ifdef BUILD_FOR_ANDROID
-	struct g2d_specific_data *g2d_rsd = NULL;
-#endif
 	int stride, divX, divY;
 	vpu_mem_desc *mvcol_md = NULL;
 	Rect rotCrop;
@@ -3621,9 +3463,6 @@ decoder_allocate_framebuffer(struct decode *dec)
 	}
 
 	if ((dst_scheme == PATH_V4L2) || (dst_scheme == PATH_IPU)
-#ifdef BUILD_FOR_ANDROID
-			|| (dst_scheme == PATH_G2D)
-#endif
 	   ) {
 		rotation.rot_en = dec->cmdl->rot_en;
 		rotation.rot_angle = dec->cmdl->rot_angle;
@@ -3638,38 +3477,21 @@ decoder_allocate_framebuffer(struct decode *dec)
 				disp = v4l_display_open(dec, totalfb, rotation, rotCrop);
 			else if (dst_scheme == PATH_IPU)
 				disp = ipu_display_open(dec, totalfb, rotation, rotCrop);
-#ifdef BUILD_FOR_ANDROID
-			else if (dst_scheme == PATH_G2D)
-				disp = android_display_open(dec, totalfb, rotation, rotCrop);
-#endif
 		} else
 			if (dst_scheme == PATH_V4L2)
 				disp = v4l_display_open(dec, totalfb, rotation, dec->picCropRect);
 			else if (dst_scheme == PATH_IPU)
 				disp = ipu_display_open(dec, totalfb, rotation, dec->picCropRect);
-#ifdef BUILD_FOR_ANDROID
-			else if (dst_scheme == PATH_G2D)
-				disp = android_display_open(dec, totalfb, rotation, dec->picCropRect);
-#endif
 
 		if (disp == NULL) {
 			goto err;
 		}
 
-#ifndef _FSL_VTS_
-		/* Not set fps when doing performance test default */
-		if ((dec->cmdl->fps == 0) && !vpu_v4l_performance_test && (dst_scheme == PATH_V4L2))
-			dec->cmdl->fps = 30;
-#endif
 
 		info_msg("Display fps will be %d\n", dec->cmdl->fps);
 
 		if (dst_scheme == PATH_V4L2)
 			v4l_rsd = (struct v4l_specific_data *)disp->render_specific_data;
-#ifdef BUILD_FOR_ANDROID
-		else if (dst_scheme == PATH_G2D)
-			g2d_rsd = (struct g2d_specific_data *)disp->render_specific_data;
-#endif
 
 		divX = (dec->mjpg_fmt == MODE420 || dec->mjpg_fmt == MODE422) ? 2 : 1;
 		divY = (dec->mjpg_fmt == MODE420 || dec->mjpg_fmt == MODE224) ? 2 : 1;
@@ -3690,10 +3512,6 @@ decoder_allocate_framebuffer(struct decode *dec)
 						fb[i].bufY = v4l_rsd->buffers[i]->offset;
 					else if (dst_scheme == PATH_IPU)
 						fb[i].bufY = disp->ipu_bufs[i].ipu_paddr;
-#ifdef BUILD_FOR_ANDROID
-					else if (dst_scheme == PATH_G2D)
-						fb[i].bufY = g2d_rsd->g2d_bufs[i]->buf_paddr;
-#endif
 					fb[i].bufCb = fb[i].bufY + img_size;
 					fb[i].bufCr = fb[i].bufCb + (img_size / divX / divY);
 				}
@@ -3707,13 +3525,6 @@ decoder_allocate_framebuffer(struct decode *dec)
 						fb[i].bufCb = fb[i].bufY + img_size;
 						fb[i].bufCr = fb[i].bufCb + (img_size / divX / divY);
 					}
-#ifdef BUILD_FOR_ANDROID
-					else if (dst_scheme == PATH_G2D) {
-						fb[i].bufY = g2d_rsd->g2d_bufs[i]->buf_paddr;
-						fb[i].bufCb = fb[i].bufY + img_size;
-						fb[i].bufCr = fb[i].bufCb + (img_size / divX / divY);
-					}
-#endif
 				} else {
 					err_msg("undefined mapType = %d\n", dec->cmdl->mapType);
 					goto err1;
@@ -3774,12 +3585,6 @@ err1:
 		ipu_display_close(disp);
 		dec->disp = NULL;
 	}
-#ifdef BUILD_FOR_ANDROID
-	else if (dst_scheme == PATH_G2D) {
-		android_display_close(disp);
-		dec->disp = NULL;
-	}
-#endif
 err:
 	if (((dst_scheme != PATH_V4L2) && (dst_scheme != PATH_IPU))||
 	   ((dst_scheme == PATH_V4L2) && deblock_en )) {
