@@ -1,14 +1,9 @@
 CC ?=$(CROSS_COMPILE)gcc
 LINK ?=$(CROSS_COMPILE)gcc
 
-OBJ = main.o \
-      capture.o \
-      display.o \
-      fb.o \
-      utils.o \
- 
+OBJ = main.o 
 
-TARGET = mxc_vpu_test.out
+TARGET = example1
 
 all: $(TARGET)
 
